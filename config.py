@@ -14,3 +14,6 @@ LOGGER_ENABLED = os.getenv("LOGGER_ENABLED", "true").lower() == "true"
 
 # Logger
 LOG_OUTPUT_PATH = os.getenv("LOG_OUTPUT_PATH", "logs/session.html")
+
+CACHE_TTL_HOURS = int(os.getenv("CACHE_TTL_HOURS", "24"))
+CACHE_MAX_ENTRIES = int(os.getenv("CACHE_MAX_ENTRIES", "1000"))
