@@ -1,7 +1,11 @@
+import sqlite3
+import json
+import os
 from datetime import datetime
+from modules.cache import get_cache_size
 
-_session_log = []
-_session_start = datetime.utcnow().isoformat()
+DB_PATH = "cache/cache.db"
+SESSION_ID = datetime.utcnow().isoformat()
 
 MODEL_COSTS = {
     "claude-opus-4-6": {"input": 15.0, "output": 75.0},
@@ -10,6 +14,28 @@ MODEL_COSTS = {
 }
 
 DEFAULT_COST = {"input": 3.0, "output": 15.0}
+
+
+def _get_connection():
+    os.makedirs("cache", exist_ok=True)
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def init_log():
+    conn = _get_connection()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS session_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id TEXT NOT NULL,
+            timestamp TEXT NOT NULL,
+            data TEXT NOT NULL
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_session ON session_log(session_id)")
+    conn.commit()
+    conn.close()
 
 
 def estimate_cost(model: str, input_tokens: int, output_tokens: int) -> float:
@@ -37,18 +63,22 @@ def log_request(body: dict, response: dict, meta: dict):
         "output_tokens": output_tokens,
         "actual_cost": meta.get("actual_cost") if meta.get("actual_cost") is not None else estimate_cost(
             meta.get("routed_model") or meta.get("original_model", "unknown"),
-            input_tokens,
-            output_tokens
+            input_tokens, output_tokens
         ),
         "original_cost": meta.get("original_cost") if meta.get("original_cost") is not None else estimate_cost(
             meta.get("original_model", "unknown"),
-            input_tokens,
-            output_tokens
+            input_tokens, output_tokens
         ),
         "prompt_preview": _get_prompt_preview(body),
     }
 
-    _session_log.append(entry)
+    conn = _get_connection()
+    conn.execute(
+        "INSERT INTO session_log (session_id, timestamp, data) VALUES (?, ?, ?)",
+        (SESSION_ID, entry["timestamp"], json.dumps(entry))
+    )
+    conn.commit()
+    conn.close()
 
 
 def _get_prompt_preview(body: dict) -> str:
@@ -61,45 +91,62 @@ def _get_prompt_preview(body: dict) -> str:
     return ""
 
 
-from modules.cache import get_cache_size
+def get_sessions() -> list:
+    conn = _get_connection()
+    rows = conn.execute("""
+        SELECT session_id, COUNT(*) as call_count, MIN(timestamp) as started_at
+        FROM session_log
+        GROUP BY session_id
+        ORDER BY started_at DESC
+    """).fetchall()
+    conn.close()
+    return [
+        {
+            "session_id": r["session_id"],
+            "call_count": r["call_count"],
+            "started_at": r["started_at"],
+            "is_current": r["session_id"] == SESSION_ID
+        }
+        for r in rows
+    ]
 
 
-def get_stats() -> dict:
-    total_calls = len(_session_log)
-    cache_hits = sum(1 for e in _session_log if e["cache_hit"])
+def _build_stats(rows: list, session_id: str | None) -> dict:
+    calls = [json.loads(r["data"]) for r in rows]
+
+    total_calls = len(calls)
+    cache_hits = sum(1 for e in calls if e["cache_hit"])
     api_calls = total_calls - cache_hits
-    total_input_tokens = sum(e["input_tokens"] for e in _session_log)
-    total_output_tokens = sum(e["output_tokens"] for e in _session_log)
-    total_actual_cost = sum(e["actual_cost"] for e in _session_log)
-    total_original_cost = sum(e["original_cost"] for e in _session_log)
+    total_input_tokens = sum(e["input_tokens"] for e in calls)
+    total_output_tokens = sum(e["output_tokens"] for e in calls)
+    total_actual_cost = sum(e["actual_cost"] for e in calls)
+    total_original_cost = sum(e["original_cost"] for e in calls)
     total_savings = total_original_cost - total_actual_cost
     avg_latency = (
-        sum(e["latency_ms"] for e in _session_log if not e["cache_hit"]) / api_calls
+        sum(e["latency_ms"] for e in calls if not e["cache_hit"]) / api_calls
         if api_calls > 0 else 0
     )
-
-    complexity_counts = {"SIMPLE": 0, "MODERATE": 0, "COMPLEX": 0}
-    for e in _session_log:
-        if e["complexity"] in complexity_counts:
-            complexity_counts[e["complexity"]] += 1
-
-    routing_counts = {"downgraded": 0, "kept": 0, "skipped": 0}
-    for e in _session_log:
-        decision = e.get("routing_decision", "skipped")
-        if decision in routing_counts:
-            routing_counts[decision] += 1
-
-    routed_calls = [e for e in _session_log if not e["cache_hit"] and e.get("router_latency_ms", 0) > 0]
+    routed_calls = [e for e in calls if not e["cache_hit"] and e.get("router_latency_ms", 0) > 0]
     avg_router_latency = (
         sum(e["router_latency_ms"] for e in routed_calls) / len(routed_calls)
         if routed_calls else 0
     )
 
-    cache_size = get_cache_size()
+    complexity_counts = {"SIMPLE": 0, "MODERATE": 0, "COMPLEX": 0}
+    for e in calls:
+        if e.get("complexity") in complexity_counts:
+            complexity_counts[e["complexity"]] += 1
+
+    routing_counts = {"downgraded": 0, "kept": 0, "skipped": 0}
+    for e in calls:
+        decision = e.get("routing_decision", "skipped")
+        if decision in routing_counts:
+            routing_counts[decision] += 1
 
     return {
-        "session_start": _session_start,
-        "cache_size": cache_size,
+        "session_id": session_id or "overall",
+        "is_current": session_id == SESSION_ID,
+        "cache_size": get_cache_size(),
         "summary": {
             "total_calls": total_calls,
             "cache_hits": cache_hits,
@@ -115,5 +162,23 @@ def get_stats() -> dict:
         },
         "complexity_counts": complexity_counts,
         "routing_counts": routing_counts,
-        "calls": list(reversed(_session_log)),
+        "calls": list(reversed(calls)),
     }
+
+
+def get_stats(session_id: str | None = None) -> dict:
+    conn = _get_connection()
+    if session_id:
+        rows = conn.execute(
+            "SELECT data FROM session_log WHERE session_id = ? ORDER BY id ASC",
+            (session_id,)
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT data FROM session_log ORDER BY id ASC"
+        ).fetchall()
+    conn.close()
+    return _build_stats(rows, session_id)
+
+
+init_log()
