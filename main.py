@@ -2,6 +2,7 @@ import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from pipeline import run_pipeline
+from logger import generate_report
 
 app = FastAPI(title="agentic-proxy")
 
@@ -12,6 +13,11 @@ async def messages(request: Request):
     headers = dict(request.headers)
     result = await run_pipeline(body, headers)
     return JSONResponse(content=result)
+
+
+@app.on_event("shutdown")
+async def shutdown():
+    generate_report()
 
 
 if __name__ == "__main__":
