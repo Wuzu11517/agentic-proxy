@@ -5,16 +5,22 @@ from pipeline import run_pipeline
 from modules.logger import get_stats
 from modules.dashboard import get_dashboard_html
 from modules.cache import clear_all
+from proxy import ProxyError
 
 app = FastAPI(title="agentic-proxy")
 
 
 @app.post("/v1/messages")
 async def messages(request: Request):
-    body = await request.json()
-    headers = dict(request.headers)
-    result = await run_pipeline(body, headers)
-    return JSONResponse(content=result)
+    try:
+        body = await request.json()
+        headers = dict(request.headers)
+        result = await run_pipeline(body, headers)
+        return JSONResponse(content=result)
+    except ProxyError as e:
+        return JSONResponse(status_code=e.status_code, content={"error": e.detail})
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
 
 
 @app.get("/stats")
