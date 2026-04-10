@@ -96,4 +96,11 @@ def store_cache(body: dict, response: dict):
     conn.close()
 
 
+def clear_all():
+    conn = _get_connection()
+    conn.execute("DELETE FROM cache")
+    conn.commit()
+    conn.close()
+
+
 init_cache()
