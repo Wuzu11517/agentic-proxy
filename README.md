@@ -233,10 +233,10 @@ python demo/streaming_agent.py
 
 ## Planned improvements
 
-- Semantic caching — cache near-identical prompts using embedding similarity, not just exact match
-- Context trimming — summarize and compress long conversation histories before forwarding
-- Router confidence threshold — only downgrade when the classifier is above a configurable confidence level
-- Docker support — single command setup with `docker-compose up`
+- [ ] Semantic caching — cache near-identical prompts using embedding similarity, not just exact match
+- [ ] Context trimming — summarize and compress long conversation histories before forwarding
+- [ ] Router confidence threshold — only downgrade when the classifier is above a configurable confidence level
+- [ ] Docker support — single command setup with `docker-compose up`
 
 ---
 
