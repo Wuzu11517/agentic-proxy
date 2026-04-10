@@ -311,7 +311,10 @@ def get_dashboard_html() -> str:
     <div class="topbar-left">
         <h1>agentic-proxy</h1>
         <div class="divider-v"></div>
-        <span class="session-label" id="session-label">—</span>
+        <select id="session-select" onchange="onSessionChange()" style="font-family:var(--mono);font-size:0.75rem;color:#374151;background:#fff;border:1px solid #e5e7eb;padding:0.3rem 0.6rem;border-radius:5px;cursor:pointer;">
+            <option value="">Overall</option>
+        </select>
+        <span class="session-label" id="session-label"></span>
     </div>
     <div style="display:flex;align-items:center;gap:0.75rem">
         <button onclick="clearCache()" id="clear-btn" style="font-family:var(--sans);font-size:0.72rem;font-weight:500;color:#6b7280;background:#faf9f7;border:1px solid #e5e7eb;padding:0.35rem 0.75rem;border-radius:5px;cursor:pointer;">Clear Cache</button>
@@ -494,20 +497,48 @@ def get_dashboard_html() -> str:
 
     function fmt(n) { return '$' + (n || 0).toFixed(6); }
 
+    let selectedSession = '';
+
+    function onSessionChange() {
+        selectedSession = document.getElementById('session-select').value;
+        refresh();
+    }
+
+    async function loadSessions() {
+        try {
+            const res = await fetch('/sessions');
+            const sessions = await res.json();
+            const select = document.getElementById('session-select');
+            const current = select.value;
+
+            // Keep Overall option, rebuild the rest
+            select.innerHTML = '<option value="">Overall</option>';
+            sessions.forEach(s => {
+                const opt = document.createElement('option');
+                opt.value = s.session_id;
+                const label = s.started_at.replace('T', ' ').split('.')[0];
+                opt.textContent = s.is_current ? `${label} (current)` : label;
+                select.appendChild(opt);
+            });
+            select.value = current;
+        } catch(e) {}
+    }
+
     async function refresh() {
         let data;
         try {
-            const res = await fetch('/stats');
+            const url = selectedSession ? `/stats?session=${encodeURIComponent(selectedSession)}` : '/stats';
+            const res = await fetch(url);
             data = await res.json();
         } catch(e) { return; }
 
         const s = data.summary;
 
-        // Topbar
-        if (data.session_start) {
-            document.getElementById('session-label').textContent =
-                data.session_start.replace('T', ' ').split('.')[0] + ' UTC';
-        }
+        // Session label
+        const label = data.session_id === 'overall'
+            ? 'All sessions'
+            : data.session_id.replace('T', ' ').split('.')[0] + ' UTC' + (data.is_current ? ' (current)' : '');
+        document.getElementById('session-label').textContent = label;
 
         // Stat row
         document.getElementById('total-calls').textContent = s.total_calls;
@@ -613,8 +644,9 @@ def get_dashboard_html() -> str:
         }).join('');
     }
 
+    loadSessions();
     refresh();
-    setInterval(refresh, 2000);
+    setInterval(() => { loadSessions(); refresh(); }, 2000);
 
     async function clearCache() {
         const btn = document.getElementById('clear-btn');
