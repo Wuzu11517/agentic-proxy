@@ -1,11 +1,12 @@
 import uvicorn
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, HTMLResponse
+from fastapi import FastAPI, Request, Query
+from fastapi.responses import JSONResponse, HTMLResponse, StreamingResponse
 from pipeline import run_pipeline
-from modules.logger import get_stats
+from modules.logger import get_stats, get_sessions
 from modules.dashboard import get_dashboard_html
 from modules.cache import clear_all
 from proxy import ProxyError
+from typing import Optional
 
 app = FastAPI(title="agentic-proxy")
 
@@ -15,8 +16,21 @@ async def messages(request: Request):
     try:
         body = await request.json()
         headers = dict(request.headers)
+        is_streaming = body.get("stream", False)
         result = await run_pipeline(body, headers)
+
+        if is_streaming:
+            return StreamingResponse(
+                result,
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "X-Accel-Buffering": "no",
+                }
+            )
+
         return JSONResponse(content=result)
+
     except ProxyError as e:
         return JSONResponse(status_code=e.status_code, content={"error": e.detail})
     except Exception as e:
@@ -24,8 +38,13 @@ async def messages(request: Request):
 
 
 @app.get("/stats")
-async def stats():
-    return JSONResponse(content=get_stats())
+async def stats(session: Optional[str] = Query(default=None)):
+    return JSONResponse(content=get_stats(session_id=session))
+
+
+@app.get("/sessions")
+async def sessions():
+    return JSONResponse(content=get_sessions())
 
 
 @app.post("/cache/clear")
