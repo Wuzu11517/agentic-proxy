@@ -32,14 +32,15 @@ def log_request(body: dict, response: dict, meta: dict):
         "original_message_count": meta.get("original_message_count", 0),
         "trimmed_message_count": meta.get("trimmed_message_count"),
         "latency_ms": meta.get("latency_ms", 0),
+        "router_latency_ms": meta.get("router_latency_ms", 0),
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
-        "actual_cost": meta.get("actual_cost") or estimate_cost(
+        "actual_cost": meta.get("actual_cost") if meta.get("actual_cost") is not None else estimate_cost(
             meta.get("routed_model") or meta.get("original_model", "unknown"),
             input_tokens,
             output_tokens
         ),
-        "original_cost": meta.get("original_cost") or estimate_cost(
+        "original_cost": meta.get("original_cost") if meta.get("original_cost") is not None else estimate_cost(
             meta.get("original_model", "unknown"),
             input_tokens,
             output_tokens
@@ -58,6 +59,9 @@ def _get_prompt_preview(body: dict) -> str:
     if isinstance(last, str):
         return last[:100]
     return ""
+
+
+from modules.cache import get_cache_size
 
 
 def get_stats() -> dict:
@@ -85,8 +89,17 @@ def get_stats() -> dict:
         if decision in routing_counts:
             routing_counts[decision] += 1
 
+    routed_calls = [e for e in _session_log if not e["cache_hit"] and e.get("router_latency_ms", 0) > 0]
+    avg_router_latency = (
+        sum(e["router_latency_ms"] for e in routed_calls) / len(routed_calls)
+        if routed_calls else 0
+    )
+
+    cache_size = get_cache_size()
+
     return {
         "session_start": _session_start,
+        "cache_size": cache_size,
         "summary": {
             "total_calls": total_calls,
             "cache_hits": cache_hits,
@@ -98,6 +111,7 @@ def get_stats() -> dict:
             "total_original_cost": round(total_original_cost, 6),
             "total_savings": round(total_savings, 6),
             "avg_latency_ms": round(avg_latency, 1),
+            "avg_router_latency_ms": round(avg_router_latency, 1),
         },
         "complexity_counts": complexity_counts,
         "routing_counts": routing_counts,
