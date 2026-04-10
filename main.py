@@ -1,8 +1,10 @@
 import uvicorn
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, HTMLResponse
 from pipeline import run_pipeline
-from logger import generate_report
+from modules.logger import get_stats
+from modules.dashboard import get_dashboard_html
+from modules.cache import clear_all
 
 app = FastAPI(title="agentic-proxy")
 
@@ -15,10 +17,21 @@ async def messages(request: Request):
     return JSONResponse(content=result)
 
 
-@app.on_event("shutdown")
-async def shutdown():
-    generate_report()
+@app.get("/stats")
+async def stats():
+    return JSONResponse(content=get_stats())
+
+
+@app.post("/cache/clear")
+async def clear_cache():
+    clear_all()
+    return JSONResponse(content={"status": "ok"})
+
+
+@app.get("/dashboard", response_class=HTMLResponse)
+async def dashboard():
+    return HTMLResponse(content=get_dashboard_html())
 
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("main:app", host="0.0.0.0", port=8000)
