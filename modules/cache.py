@@ -96,6 +96,13 @@ def store_cache(body: dict, response: dict):
     conn.close()
 
 
+def get_cache_size() -> dict:
+    conn = _get_connection()
+    count = conn.execute("SELECT COUNT(*) FROM cache").fetchone()[0]
+    conn.close()
+    return {"entries": count, "max_entries": config.CACHE_MAX_ENTRIES}
+
+
 def clear_all():
     conn = _get_connection()
     conn.execute("DELETE FROM cache")
