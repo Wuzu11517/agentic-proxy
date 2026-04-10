@@ -15,6 +15,7 @@ async def run_pipeline(body: dict, headers: dict) -> dict:
         "original_message_count": len(body.get("messages", [])),
         "trimmed_message_count": None,
         "latency_ms": 0,
+        "router_latency_ms": 0,
         "original_cost": None,
         "actual_cost": None,
     }
@@ -44,14 +45,21 @@ async def run_pipeline(body: dict, headers: dict) -> dict:
     # Step 3: Model routing
     final_model = meta["original_model"]
     if config.ROUTER_ENABLED:
-        body, complexity_label = await route_model(body)
-        meta["complexity"] = complexity_label
-        final_model = body.get("model")
-        if final_model != meta["original_model"]:
-            meta["routed_model"] = final_model
-            meta["routing_decision"] = "downgraded"
-        else:
-            meta["routing_decision"] = "kept"
+        try:
+            import time
+            router_start = time.monotonic()
+            body, complexity_label = await route_model(body)
+            meta["router_latency_ms"] = round((time.monotonic() - router_start) * 1000)
+            meta["complexity"] = complexity_label
+            final_model = body.get("model")
+            if final_model != meta["original_model"]:
+                meta["routed_model"] = final_model
+                meta["routing_decision"] = "downgraded"
+            else:
+                meta["routing_decision"] = "kept"
+        except Exception as e:
+            print(f"[agentic-proxy] Router failed, using original model: {e}")
+            meta["routing_decision"] = "skipped"
 
     # Step 4: Forward to Anthropic API
     result, latency_ms = await forward_request(body, headers)
