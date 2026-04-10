@@ -118,7 +118,7 @@ def get_dashboard_html() -> str:
         /* STAT ROW */
         .stat-row {
             display: grid;
-            grid-template-columns: repeat(6, 1fr);
+            grid-template-columns: repeat(7, 1fr);
             gap: 1px;
             background: var(--border);
             border: 1px solid var(--border);
@@ -351,9 +351,14 @@ def get_dashboard_html() -> str:
             <div class="sub">from model downgrade</div>
         </div>
         <div class="stat-cell">
-            <div class="label">Avg Latency</div>
+            <div class="label">Avg API Latency</div>
             <div class="value" id="avg-latency">0ms</div>
-            <div class="sub">API calls only</div>
+            <div class="sub" id="avg-router-latency">router: 0ms avg</div>
+        </div>
+        <div class="stat-cell">
+            <div class="label">Cache Size</div>
+            <div class="value" id="cache-size">0</div>
+            <div class="sub" id="cache-size-sub">of 0 max entries</div>
         </div>
     </div>
 
@@ -425,7 +430,8 @@ def get_dashboard_html() -> str:
                         <th>Routing</th>
                         <th>Original Model</th>
                         <th>Routed To</th>
-                        <th>Latency</th>
+                        <th>API Latency</th>
+                        <th>Router Latency</th>
                         <th>Input</th>
                         <th>Output</th>
                         <th>Actual Cost</th>
@@ -510,6 +516,12 @@ def get_dashboard_html() -> str:
         document.getElementById('total-savings').textContent = fmt(s.total_savings);
         document.getElementById('savings-sub').textContent = `vs ${fmt(s.total_original_cost)} without proxy`;
         document.getElementById('avg-latency').textContent = s.avg_latency_ms + 'ms';
+        document.getElementById('avg-router-latency').textContent = `router: ${s.avg_router_latency_ms}ms avg`;
+
+        if (data.cache_size) {
+            document.getElementById('cache-size').textContent = data.cache_size.entries;
+            document.getElementById('cache-size-sub').textContent = `of ${data.cache_size.max_entries} max entries`;
+        }
 
         // Calculate cache savings vs routing savings from call log
         let cacheSavings = 0;
@@ -590,6 +602,7 @@ def get_dashboard_html() -> str:
                 <td>${c.original_model}</td>
                 <td>${c.routed_model || '—'}</td>
                 <td>${c.latency_ms}ms</td>
+                <td>${c.router_latency_ms ? c.router_latency_ms + 'ms' : '—'}</td>
                 <td>${c.input_tokens.toLocaleString()}</td>
                 <td>${c.output_tokens.toLocaleString()}</td>
                 <td>${fmt(c.actual_cost)}</td>
