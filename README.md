@@ -228,7 +228,7 @@ python demo/streaming_agent.py
 - **Router overhead** — every non-cached request incurs a small Haiku call to classify the prompt. This is visible in the dashboard as router latency. For very short-lived agents this overhead may outweigh the routing savings.
 - **Single instance** — the proxy is designed to run locally for a single developer. It is not designed for multi-user or production deployments.
 - **In-memory session ID** — the current session ID resets on server restart, though all logged data persists in SQLite.
-
+- **Hard-Coded Prices** — the current price calculation for tokens is hard-coded so it's possible it may become stale in the future but it likely won't have an extremely large difference.
 ---
 
 ## Planned improvements
